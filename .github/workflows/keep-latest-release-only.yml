@@ -1,0 +1,35 @@
+name: Keep Latest Release Only
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove older releases and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          latest="$(gh api "/repos/${repo}/releases/latest" --jq '.id')"
+          echo "Keeping release id ${latest}"
+          gh api "/repos/${repo}/releases?per_page=100" --paginate --jq '.[] | [.id,.tag_name] | @tsv' |
+          while IFS=$'\t' read -r release_id tag; do
+            [ -z "${release_id}" ] && continue
+            if [ "${release_id}" = "${latest}" ]; then
+              continue
+            fi
+            echo "Deleting old release ${tag} (${release_id})"
+            gh api --method DELETE "/repos/${repo}/releases/${release_id}"
+            echo "Deleting old tag ${tag}"
+            gh api --method DELETE "/repos/${repo}/git/refs/tags/${tag}" || true
+          done
